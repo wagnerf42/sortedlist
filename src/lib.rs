@@ -25,6 +25,19 @@ impl<T: Copy + Ord> SortedList<T> {
         self.data.iter().flatten()
     }
 
+    /// Return if we contain given value.
+    /// This runs in O(log(n)) whatever the block size.
+    pub fn contains(&self, value: &T) -> bool {
+        let block_index = match self.indexes.binary_search(value) {
+            Ok(_) => return true,
+            Err(i) => i,
+        };
+        self.data
+            .get(block_index)
+            .and_then(|b| b.binary_search(value).ok())
+            .is_some()
+    }
+
     /// Insert element at given position.
     pub fn insert(&mut self, element: T) {
         let mut target_block = match self.indexes.binary_search(&element) {
@@ -35,7 +48,9 @@ impl<T: Copy + Ord> SortedList<T> {
             if target_block == 0 {
                 // first insert is a special case
                 self.indexes.push(element);
-                self.data.push(vec![element]);
+                let mut new_vec = Vec::with_capacity(self.block_size);
+                new_vec.push(element);
+                self.data.push(new_vec);
                 return;
             }
             target_block -= 1;
@@ -61,6 +76,8 @@ impl<T: Copy + Ord> SortedList<T> {
 
     fn rebalance(&mut self, block_index: usize) {
         let mid = self.block_size / 2;
+        //        let mut new_vec = Vec::with_capacity(self.block_size);
+        //        new_vec.extend(self.data[block_index].drain(mid..));
         let new_vec = self.data[block_index].drain(mid..).collect::<Vec<_>>();
         self.data.insert(block_index + 1, new_vec);
         self.indexes
@@ -87,5 +104,13 @@ mod test {
         }
         assert!(l.iter().cloned().eq(0..1_000_000));
     }
-
+    #[test]
+    fn contains() {
+        let mut l = SortedList::new(1_000);
+        for x in (0..1_000_000).rev() {
+            l.insert(x);
+        }
+        assert!(l.contains(&500_000));
+        assert!(!l.contains(&1_000_000));
+    }
 }

@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["frederic wagner <frederic.wagner@univ-grenoble-alpes.fr>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dev-dependencies]
+criterion="*"
+rand="*"
 
-[dependencies]
+[[bench]]
+name = "insertions"
+harness = false
