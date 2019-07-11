@@ -6,16 +6,14 @@ use std::borrow::Borrow;
 /// If you choose a block size of sqrt(n) you get all operations
 /// in amortized O(n**(1/3)).
 pub struct SortedList<T> {
-    indexes: Vec<T>,
     data: Vec<Vec<T>>,
     block_size: usize,
 }
 
-impl<T: Copy + Ord> SortedList<T> {
+impl<T: Ord> SortedList<T> {
     /// Create a new `SortedList` with given block size.
     pub fn new(block_size: usize) -> Self {
         SortedList {
-            indexes: Vec::new(),
             data: Vec::new(),
             block_size,
         }
@@ -34,18 +32,10 @@ impl<T: Copy + Ord> SortedList<T> {
     {
         if let Some((block_index, element_index)) = self.indexes_for(value) {
             self.data[block_index].remove(element_index);
-            if element_index == self.data[block_index].len() + 1 {
-                // if we were the max of the block we need to update indices
-                if element_index > 0 {
-                    self.indexes[block_index] = self.data[block_index].last().cloned().unwrap();
-                }
-            }
             if block_index > 0 && self.data[block_index].len() < self.block_size / 2 {
                 // we are not big enough, we should fuse with previous block
                 let mut to_redispatch = self.data.remove(block_index);
-                self.indexes.remove(block_index);
                 self.data[block_index - 1].extend(to_redispatch.drain(..));
-                self.indexes[block_index - 1] = self.data[block_index - 1].last().cloned().unwrap();
                 if self.data[block_index - 1].len() > self.block_size {
                     // TODO: we could do better and avoid removing and repushing stuff
                     self.rebalance(block_index - 1);
@@ -57,16 +47,47 @@ impl<T: Copy + Ord> SortedList<T> {
         }
     }
 
+    fn block_index<Q>(&self, value: &Q) -> usize
+    where
+        Q: Ord + ?Sized,
+        T: Borrow<Q>,
+    {
+        // note : this code is copy pasted from the slice's binary search in standard library.
+        let mut size = self.data.len();
+        if size == 0 {
+            return 0;
+        }
+        let mut base = 0usize;
+        while size > 1 {
+            let half = size / 2;
+            let mid = base + half;
+            // mid is always in [0, size), that means mid is >= 0 and < size.
+            // mid >= 0: by definition
+            // mid < size: mid = size / 2 + size / 4 + size / 8 ...
+            let cmp = value.cmp(self.data[mid].last().unwrap().borrow());
+            base = if cmp == std::cmp::Ordering::Greater {
+                mid
+            } else {
+                base
+            };
+            size -= half;
+        }
+        // base is always in [0, size) because base <= mid.
+        let cmp = value.cmp(self.data[base].last().unwrap().borrow());
+        if cmp == std::cmp::Ordering::Equal {
+            base
+        } else {
+            base + (cmp == std::cmp::Ordering::Greater) as usize
+        }
+    }
+
     /// Return block index and index in block for given value.
     fn indexes_for<Q>(&self, value: &Q) -> Option<(usize, usize)>
     where
         Q: Ord + ?Sized,
         T: Borrow<Q>,
     {
-        let block_index = match self.indexes.binary_search_by_key(&value, |t| t.borrow()) {
-            Ok(i) => return Some((i, self.data[i].len() - 1)),
-            Err(i) => i,
-        };
+        let block_index = self.block_index(value);
         self.data
             .get(block_index)
             .and_then(|b| b.binary_search_by_key(&value, |t| t.borrow()).ok())
@@ -80,10 +101,7 @@ impl<T: Copy + Ord> SortedList<T> {
         Q: Ord + ?Sized,
         T: Borrow<Q>,
     {
-        let block_index = match self.indexes.binary_search_by_key(&value, |t| t.borrow()) {
-            Ok(_) => return true,
-            Err(i) => i,
-        };
+        let block_index = self.block_index(value);
         self.data
             .get(block_index)
             .and_then(|b| b.binary_search_by_key(&value, |t| t.borrow()).ok())
@@ -92,14 +110,10 @@ impl<T: Copy + Ord> SortedList<T> {
 
     /// Insert element at given position.
     pub fn insert(&mut self, element: T) {
-        let mut target_block = match self.indexes.binary_search(&element) {
-            Ok(i) => i,
-            Err(i) => i,
-        };
+        let mut target_block = self.block_index(&element);
         if target_block == self.data.len() {
             if target_block == 0 {
                 // first insert is a special case
-                self.indexes.push(element);
                 let mut new_vec = Vec::with_capacity(self.block_size);
                 new_vec.push(element);
                 self.data.push(new_vec);
@@ -110,7 +124,7 @@ impl<T: Copy + Ord> SortedList<T> {
 
         if self.data[target_block].len() == self.block_size {
             self.rebalance(target_block);
-            if self.indexes[target_block] <= element {
+            if *self.data[target_block].last().unwrap() <= element {
                 target_block += 1;
             }
         }
@@ -120,9 +134,6 @@ impl<T: Copy + Ord> SortedList<T> {
             Ok(i) => i,
             Err(i) => i,
         };
-        if target_position == block.len() {
-            self.indexes[target_block] = element;
-        }
         block.insert(target_position, element);
     }
 
@@ -132,8 +143,6 @@ impl<T: Copy + Ord> SortedList<T> {
         //        new_vec.extend(self.data[block_index].drain(mid..));
         let new_vec = self.data[block_index].drain(mid..).collect::<Vec<_>>();
         self.data.insert(block_index + 1, new_vec);
-        self.indexes
-            .insert(block_index, self.data[block_index].last().cloned().unwrap());
     }
 }
 
