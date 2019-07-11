@@ -32,13 +32,30 @@ impl<T: Ord> SortedList<T> {
     {
         if let Some((block_index, element_index)) = self.indexes_for(value) {
             self.data[block_index].remove(element_index);
-            if block_index > 0 && self.data[block_index].len() < self.block_size / 2 {
+            let block_len = self.data[block_index].len();
+            if block_index > 0 && block_len < self.block_size / 2 {
                 // we are not big enough, we should fuse with previous block
-                let mut to_redispatch = self.data.remove(block_index);
-                self.data[block_index - 1].extend(to_redispatch.drain(..));
-                if self.data[block_index - 1].len() > self.block_size {
-                    // TODO: we could do better and avoid removing and repushing stuff
-                    self.rebalance(block_index - 1);
+                // two cases: whether we end with one or two buffers.
+                let cumulated_size = self.data[block_index - 1].len() + block_len;
+                if cumulated_size <= self.block_size {
+                    // easy case, just append current block at end of previous one
+                    let to_redispatch = self.data.remove(block_index);
+                    self.data[block_index - 1].extend(to_redispatch);
+                } else {
+                    // hard case, we need to redispatch some of previous buffer's in us.
+                    let target_size = cumulated_size / 2;
+                    let moved_size = self.data[block_index - 1].len() - target_size;
+                    unsafe {
+                        // move data back at end of vector
+                        let buffer = &mut self.data[block_index][0] as *mut T;
+                        let end = buffer.offset(moved_size as isize);
+                        buffer.copy_to(end, block_len);
+                        self.data[block_index].set_len(block_len + moved_size);
+                        // move data from end of previous vector here
+                        let previous_data = &self.data[block_index - 1][target_size] as *const T;
+                        previous_data.copy_to_nonoverlapping(buffer, moved_size);
+                        self.data[block_index - 1].set_len(target_size);
+                    }
                 }
             }
             true
@@ -64,7 +81,8 @@ impl<T: Ord> SortedList<T> {
             // mid is always in [0, size), that means mid is >= 0 and < size.
             // mid >= 0: by definition
             // mid < size: mid = size / 2 + size / 4 + size / 8 ...
-            let cmp = value.cmp(self.data[mid].last().unwrap().borrow());
+            let cmp = value
+                .cmp(unsafe { self.data[mid].get_unchecked(self.data[mid].len() - 1) }.borrow());
             base = if cmp == std::cmp::Ordering::Greater {
                 mid
             } else {
@@ -73,7 +91,8 @@ impl<T: Ord> SortedList<T> {
             size -= half;
         }
         // base is always in [0, size) because base <= mid.
-        let cmp = value.cmp(self.data[base].last().unwrap().borrow());
+        let cmp =
+            value.cmp(unsafe { self.data[base].get_unchecked(self.data[base].len() - 1) }.borrow());
         if cmp == std::cmp::Ordering::Equal {
             base
         } else {
@@ -139,9 +158,8 @@ impl<T: Ord> SortedList<T> {
 
     fn rebalance(&mut self, block_index: usize) {
         let mid = self.data[block_index].len() / 2;
-        //        let mut new_vec = Vec::with_capacity(self.block_size);
-        //        new_vec.extend(self.data[block_index].drain(mid..));
-        let new_vec = self.data[block_index].drain(mid..).collect::<Vec<_>>();
+        let mut new_vec = Vec::with_capacity(self.block_size);
+        new_vec.extend(self.data[block_index].drain(mid..));
         self.data.insert(block_index + 1, new_vec);
     }
 }
@@ -180,9 +198,9 @@ mod test {
         for x in (0..1_000_000).rev() {
             l.insert(x);
         }
-        for x in (0..1_000_000).filter(|&x| x % 2 == 0) {
+        for x in (0..1_000_000).filter(|&x| x % 7 == 0) {
             assert!(l.remove(&x));
         }
-        assert!(l.iter().cloned().eq((0..1_000_000).filter(|&x| x % 2 == 1)));
+        assert!(l.iter().cloned().eq((0..1_000_000).filter(|&x| x % 7 != 0)));
     }
 }
