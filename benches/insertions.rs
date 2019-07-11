@@ -81,7 +81,10 @@ fn insertions(c: &mut Criterion) {
                         }
                         l
                     },
-                    |l| assert_eq!(l.iter().max(), Some(&(input_size - 1))),
+                    |l| {
+                        assert_eq!(l.iter().max(), Some(&(input_size - 1)));
+                        l
+                    },
                 )
             },
             sizes.clone(),
@@ -93,7 +96,10 @@ fn insertions(c: &mut Criterion) {
                         .into_iter()
                         .collect::<BTreeSet<u64>>()
                 },
-                |t| assert_eq!(t.iter().max(), Some(&(input_size - 1))),
+                |t| {
+                    assert_eq!(t.iter().max(), Some(&(input_size - 1)));
+                    t
+                },
             )
         }),
     );
@@ -111,7 +117,10 @@ fn insertions(c: &mut Criterion) {
                         let x = rand::random::<u64>() % input_size;
                         (l, x)
                     },
-                    |(l, x)| assert!(l.contains(&x)),
+                    |(l, x)| {
+                        assert!(l.contains(&x));
+                        l
+                    },
                 )
             },
             sizes.clone(),
@@ -126,7 +135,10 @@ fn insertions(c: &mut Criterion) {
                         rand::random::<u64>() % input_size,
                     )
                 },
-                |(t, x)| assert!(t.contains(&x)),
+                |(t, x)| {
+                    assert!(t.contains(&x));
+                    t
+                },
             )
         }),
     );
@@ -149,11 +161,57 @@ fn insertions(c: &mut Criterion) {
                         for x in &v {
                             l.remove(x);
                         }
+                        (l, v)
                     },
                 )
             },
             sizes.clone(),
         ),
+    );
+    c.bench(
+        "insert_delete",
+        ParameterizedBenchmark::new(
+            "mixed insert/delete shuffled block size of 1000",
+            |b, &input_size| {
+                b.iter_with_setup(
+                    || {
+                        let mut l = SortedList::new(1000);
+                        for e in random_vec(input_size) {
+                            l.insert(e);
+                        }
+                        let elements = random_vec(input_size);
+                        (l, elements)
+                    },
+                    |(mut l, v)| {
+                        for c in v.chunks(2) {
+                            l.remove(&c[0]);
+                            l.insert(c[1]);
+                        }
+                        (l, v)
+                    },
+                )
+            },
+            sizes.clone(),
+        )
+        .with_function("mixed insert/delete btree", |b, &input_size| {
+            b.iter_with_setup(
+                || {
+                    let mut t = BTreeSet::new();
+                    for e in random_vec(input_size) {
+                        t.insert(e);
+                    }
+                    let elements = random_vec(input_size);
+                    (t, elements)
+                },
+                |(mut t, v)| {
+                    for c in v.chunks(2) {
+                        t.remove(&c[0]);
+                        t.insert(c[1]);
+                    }
+                    (t, v)
+                },
+            )
+        }),
     );
 }
 
