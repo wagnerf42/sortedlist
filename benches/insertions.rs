@@ -130,6 +130,31 @@ fn insertions(c: &mut Criterion) {
             )
         }),
     );
+    c.bench(
+        "remove half elements",
+        ParameterizedBenchmark::new(
+            "remove shuffled block size of 1000",
+            |b, &input_size| {
+                b.iter_with_setup(
+                    || {
+                        let mut l = SortedList::new(1000);
+                        for e in random_vec(input_size) {
+                            l.insert(e);
+                        }
+                        let mut to_remove = random_vec(input_size);
+                        to_remove.truncate(input_size as usize / 2);
+                        (l, to_remove)
+                    },
+                    |(mut l, v)| {
+                        for x in &v {
+                            l.remove(x);
+                        }
+                    },
+                )
+            },
+            sizes.clone(),
+        ),
+    );
 }
 
 criterion_group!(benches, insertions);
